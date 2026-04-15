@@ -2,76 +2,34 @@
 #![no_main]
 #![feature(abi_avr_interrupt)]
 
+use arduino_hal::delay_ms;
+use display_interface_spi::SPIInterface;
+use embedded_graphics::{
+    pixelcolor::Rgb565,
+    prelude::*,
+    primitives::{PrimitiveStyleBuilder, Rectangle},
+};
+use embedded_hal::{delay::DelayNs, digital::OutputPin};
+use st7789::{Orientation, ST7789};
+
 use avr_device::interrupt;
 use panic_halt as _;
 use ufmt::uWrite;
 
 use core::cell::Cell;
 
+struct RealScreenDimensions {
+    width: u32,
+    height: u32,
+}
+
+const REAL_SCREEN_DIMENSIONS: RealScreenDimensions = RealScreenDimensions {
+    width: 180,
+    height: 270,
+};
+
 static MILLISECOND_COUNTER: interrupt::Mutex<Cell<u32>> = interrupt::Mutex::new(Cell::new(0));
 type AudioBandAmplitudes = [u16; 7];
-
-enum ChartDisplayOption {
-    Array { overwrite: bool },
-    FrequencyBarGraph { overwrite: bool }, // If overwrite is true, serial response will include
-                                           // "\x1b[H" control symbol
-}
-
-const CHART_DISPLAY_OPTION: ChartDisplayOption =
-    ChartDisplayOption::FrequencyBarGraph { overwrite: true };
-
-pub struct ChartBuffer {
-    pub storage: [u8; 512], // Buffer to hold the string
-    pub len: usize,
-}
-
-impl ufmt::uWrite for ChartBuffer {
-    type Error = core::convert::Infallible;
-
-    fn write_str(&mut self, string: &str) -> Result<(), Self::Error> {
-        let bytes = string.as_bytes();
-        let space = self.storage.len() - self.len;
-        let to_copy = core::cmp::min(bytes.len(), space);
-
-        self.storage[self.len..self.len + to_copy].copy_from_slice(&bytes[..to_copy]);
-        self.len += to_copy;
-
-        Ok(())
-    }
-}
-
-fn render_audio_band_amplitudes(amplitudes: &[u16; 7]) -> ChartBuffer {
-    let mut buffer = ChartBuffer {
-        storage: [32; 512],
-        len: 0,
-    };
-    let levels: u16 = 10; // 10 rows high
-
-    // 1. Draw the Bars (Top to Bottom)
-    for row in (1..=levels).rev() {
-        let threshold = row * 102; // Roughly 1024 / 10
-        let _ = buffer.write_str("  "); // Left padding
-
-        for &value in amplitudes.iter() {
-            if value >= threshold {
-                let _ = buffer.write_str("  #  ");
-            } else {
-                let _ = buffer.write_str("     ");
-            }
-        }
-
-        let _ = buffer.write_str("\n");
-    }
-
-    // 2. Draw X-Axis line
-    let _ = buffer.write_str("  +----+----+----+----+----+----+----+\n");
-
-    // 3. Draw Frequencies (Centered under bars)
-    // Labels: 63, 160, 400, 1k, 2.5k, 6.2k, 16k
-    let _ = buffer.write_str("  63  160  400  1k  2.5k 6.2k 16k\n");
-
-    buffer
-}
 
 #[interrupt(atmega328p)]
 fn TIMER0_OVF() {
@@ -126,6 +84,91 @@ fn main() -> ! {
     let pins = arduino_hal::pins!(dp);
 
     let mut serial = arduino_hal::default_serial!(dp, pins, 57600);
+    let mut delay = arduino_hal::Delay::new();
+
+    ufmt::uwriteln!(&mut serial, "Initializing pins..\n\n").unwrap();
+    let spi_clock = pins.d13.into_output();
+    let miso = pins.d12.into_pull_up_input();
+    let mosi = pins.d11.into_output();
+    let tft_chip_select = pins.d10.into_output();
+    let rst = pins.d9.into_output(); // Reset pin
+    let data_command = pins.d8.into_output(); // Data/Command pin
+    let mut sd_chip_select = pins.d7.into_output();
+    let backlight = pins.d6.into_output(); // Backlight pin
+
+    sd_chip_select.set_high();
+
+    ufmt::uwriteln!(&mut serial, "Initializing SPI..\n\n").unwrap();
+    let (spi, spi_cs) = arduino_hal::Spi::new(
+        dp.SPI,
+        spi_clock,
+        mosi, // MOSI
+        miso, // MISO (unused)
+        tft_chip_select,
+        arduino_hal::spi::Settings {
+            data_order: arduino_hal::spi::DataOrder::MostSignificantFirst,
+            clock: arduino_hal::spi::SerialClockRate::OscfOver2,
+            mode: embedded_hal::spi::MODE_0,
+        },
+    );
+
+    ufmt::uwriteln!(&mut serial, "Initializing display..\n\n").unwrap();
+    let display_interface = SPIInterface::new(spi, data_command, spi_cs);
+
+    let mut display = ST7789::new(
+        display_interface,
+        core::prelude::v1::Some(rst),
+        core::prelude::v1::Some(backlight),
+        300,
+        500,
+    );
+
+    ufmt::uwriteln!(&mut serial, "Configuring display..\n\n").unwrap();
+    display.init(&mut delay).unwrap();
+    display
+        .set_backlight(st7789::BacklightState::On, &mut delay)
+        .unwrap();
+
+    ufmt::uwriteln!(&mut serial, "Resetting Display..\n\n").unwrap();
+    display.hard_reset(&mut delay).unwrap();
+    delay_ms(200);
+    ufmt::uwriteln!(&mut serial, "Initializing Display..\n\n").unwrap();
+    display.init(&mut delay).unwrap();
+    delay_ms(200);
+
+    let mut color_cycle = [
+        Rgb565::CSS_ORANGE,
+        Rgb565::CSS_GREEN,
+        Rgb565::CSS_BLUE,
+        Rgb565::CSS_RED,
+    ]
+    .iter()
+    .map(|&c| c.into_storage())
+    .cycle();
+
+    loop {
+        ufmt::uwriteln!(&mut serial, "Drawing pixels\n").unwrap();
+
+        let color = color_cycle.next().unwrap();
+
+        let x_start = 10;
+        let y_start = 10;
+        let width = 180;
+        let height = 270;
+        let colors = (0..(width as u32 * height as u32)).map(|_| color);
+
+        display
+            .set_pixels(
+                x_start,
+                y_start,
+                x_start + width - 1,
+                y_start + height - 1,
+                colors,
+            )
+            .unwrap();
+    }
+
+    /*
     let mut adc = arduino_hal::Adc::new(dp.ADC, Default::default());
 
     // Used for monotonic clock
@@ -280,4 +323,5 @@ fn main() -> ! {
             }
         }
     }
+    */
 }

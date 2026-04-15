@@ -1,0 +1,136 @@
+    Finished `dev` profile [optimized + debuginfo] target(s) in 0.27s
+     Running `ravedude target/avr-none/debug/signal-visualizer.elf`
+       Board Arduino Uno
+ Programming target/avr-none/debug/signal-visualizer.elf => /dev/ttyACM0
+Reading 754 bytes for flash from input file signal-visualizer.elf
+Writing 754 bytes to flash
+Writing | ################################################## | 100% 0.15 s 
+Reading | ################################################## | 100% 0.10 s 
+754 bytes of flash verified
+
+Avrdude done.  Thank you.
+  Programmed target/avr-none/debug/signal-visualizer.elf
+     Console /dev/ttyACM0 at 57600 baud
+             CTRL+C to exit.
+
+Read value (7) from a0
+Read value (7) from a0
+Read value (6) from a0
+Read value (8) from a0
+Read value (6) from a0
+Read value (7) from a0
+Read value (8) from a0
+Read value (6) from a0
+Read value (7) from a0
+Read value (7) from a0
+Read value (6) from a0
+Read value (7) from a0
+Read value (7) from a0
+Read value (6) from a0
+Read value (6) from a0
+Read value (6) from a0
+Read value (7) from a0
+Read value (7) from a0
+Read value (6) from a0
+Read value (7) from a0
+Read value (6) from a0
+Read value (7) from a0
+Read value (7) from a0
+Read value (6) from a0
+Read value (7) from a0
+Read value (7) from a0
+Read value (7) from a0
+Read value (7) from a0
+Read value (6) from a0
+Read value (7) from a0
+Read value (7) from a0
+Read value (6) from a0
+Read value (7) from a0
+Read value (6) from a0
+Read value (7) from a0
+Read value (7) from a0
+Read value (7) from a0
+Read value (20) from a0
+Read value (74) from a0
+Read value (137) from a0
+Read value (170) from a0
+Read value (187) from a0
+Read value (193) from a0
+Read value (209) from a0
+Read value (213) from a0
+Read value (215) from a0
+Read value (227) from a0
+Read value (236) from a0
+Read value (247) from a0
+Read value (254) from a0
+Read value (271) from a0
+Read value (288) from a0
+Read value (303) from a0
+Read value (316) from a0
+Read value (328) from a0
+Read value (347) from a0
+Read value (371) from a0
+Read value (392) from a0
+Read value (411) from a0
+Read value (425) from a0
+Read value (445) from a0
+Read value (455) from a0
+Read value (466) from a0
+Read value (475) from a0
+Read value (480) from a0
+Read value (485) from a0
+Read value (490) from a0
+Read value (506) from a0
+Read value (528) from a0
+Read value (559) from a0
+Read value (592) from a0
+Read value (590) from a0
+Read value (591) from a0
+Read value (590) from a0
+Read value (591) from a0
+Read value (620) from a0
+Read value (662) from a0
+Read value (704) from a0
+Read value (755) from a0
+Read value (816) from a0
+Read value (881) from a0
+Read value (968) from a0
+Read value (1023) from a0
+Read value (1023) from a0
+Read value (1023) from a0
+Read value (1023) from a0
+Read value (1023) from a0
+Read value (1022) from a0
+Read value (1023) from a0
+Read value (1018) from a0
+Read value (958) from a0
+Read value (884) from a0
+Read value (820) from a0
+Read value (754) from a0
+Read value (677) from a0
+Read value (607) from a0
+Read value (563) from a0
+Read value (504) from a0
+Read value (430) from a0
+Read value (379) from a0
+Read value (322) from a0
+Read value (286) from a0
+Read value (287) from a0
+Read value (307) from a0
+Read value (358) from a0
+Read value (441) from a0
+Read value (546) from a0
+Read value (588) from a0
+Read value (587) from a0
+Read value (587) from a0
+Read value (555) from a0
+Read value (371) from a0
+Read value (205) from a0
+Read value (79) from a0
+Read value (30) from a0
+Read value (6) from a0
+Read value (9) from a0
+Read value (7) from a0
+Read value (8) from a0
+Read value (9) from a0
+
