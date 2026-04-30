@@ -4,69 +4,105 @@
 
 use arduino_hal::delay_ms;
 use display_interface_spi::SPIInterface;
-use embedded_graphics::{
-    pixelcolor::Rgb565,
-    prelude::*,
-    primitives::{PrimitiveStyleBuilder, Rectangle},
-};
-use embedded_hal::{delay::DelayNs, digital::OutputPin};
-use st7789::{Orientation, ST7789};
+use embedded_graphics::{pixelcolor::Rgb565, prelude::*};
+use st7789::ST7789;
 
 use avr_device::interrupt;
 use panic_halt as _;
-use ufmt::uWrite;
 
 use core::cell::Cell;
 
+// Data Type Used to Store the ST7789 Screen Dimensions
 struct RealScreenDimensions {
     width: u32,
     height: u32,
 }
 
+// Real Screen Dimensions of the ST7789
 const REAL_SCREEN_DIMENSIONS: RealScreenDimensions = RealScreenDimensions {
-    width: 180,
-    height: 270,
+    height: 180,
+    width: 270,
 };
 
-static MILLISECOND_COUNTER: interrupt::Mutex<Cell<u32>> = interrupt::Mutex::new(Cell::new(0));
+// Data Type Used to Store the Audio Band Amplitudes
 type AudioBandAmplitudes = [u16; 7];
 
+// Due to Skewed Band Responses, They Need to be Normalized
+const MAX_MSGEQ7_BAND_RESPONSES: AudioBandAmplitudes = [150, 120, 190, 310, 475, 610, 740];
+const MIN_MSGEQ7_BAND_RESPONSES: AudioBandAmplitudes = [120, 80, 100, 100, 110, 130, 150];
+
+// Normalizes the Band Responses
+fn normalize_band_response(mut bands: AudioBandAmplitudes) -> AudioBandAmplitudes {
+    for index in 0..6 {
+        // Normalizing consists of mapping the value to the range [0, 1024]. This will also clamp the values
+        let amplitude = bands[index];
+        let max = MAX_MSGEQ7_BAND_RESPONSES[index];
+        let min = MIN_MSGEQ7_BAND_RESPONSES[index];
+
+        if amplitude > max {
+            bands[index] = 1024;
+        } else if amplitude < min {
+            bands[index] = 0;
+        } else {
+            let range = (max - min) as u32;
+            let offset = (amplitude - min) as u32;
+
+            // x << 10 = x * 1024
+            bands[index] = ((offset << 10) / range) as u16;
+        }
+    }
+
+    bands
+}
+
+// Global Variable Used to Keep Track of Milliseconds
+static MILLISECOND_COUNTER: interrupt::Mutex<Cell<u32>> = interrupt::Mutex::new(Cell::new(0));
+
+// Executes on 8 bit timer overflow for the timer TC0
 #[interrupt(atmega328p)]
 fn TIMER0_OVF() {
-    // Executes on 8 bit timer overflow
+    // Interrupt the Main Loop
     interrupt::free(|cs| {
+        // Update the Millisecond Counter
         let counter = MILLISECOND_COUNTER.borrow(cs);
         let next_val = counter.get().wrapping_add(1);
+
         counter.set(next_val);
     });
 }
 
+// Reads the Millisecond Counter
 fn millis() -> u32 {
     interrupt::free(|cs| MILLISECOND_COUNTER.borrow(cs).get())
 }
 
+// Part of the Finite State Machine for the MSGEQ7 Reader
 #[derive(Copy, Clone)]
 enum MSGEQ7ResetState {
     Low { time_set_low_ms: u32 },
     High { time_set_high_ms: u32 },
 }
 
+// Timing Constants for resetting the MSGEQ7
 impl MSGEQ7ResetState {
     const SET_LOW_WAIT_MS: u32 = 1;
     const SET_HIGH_WAIT_MS: u32 = 1;
 }
 
+// Part of the Finite State Machine for the MSGEQ7 Reader
 #[derive(Copy, Clone)]
 enum MSGEQ7StrobeState {
     Low { time_set_low_ms: u32 },
     High { time_set_high_ms: u32 },
 }
 
+// Timing Constants for strobing the MSGEQ7 to read band amplitudes
 impl MSGEQ7StrobeState {
     const SET_LOW_WAIT_MS: u32 = 1;
     const SET_HIGH_WAIT_MS: u32 = 1;
 }
 
+// Finite State Machine for the MSGEQ7 Reader
 #[derive(Copy, Clone)]
 enum MSGEQ7ReaderState {
     Resetting(MSGEQ7ResetState),
@@ -78,14 +114,19 @@ enum MSGEQ7ReaderState {
 
 #[arduino_hal::entry]
 fn main() -> ! {
-    // Device peripherals
+    // Device peripherals (dp). These are the on-board peripherals.
     let dp = arduino_hal::Peripherals::take().unwrap();
 
+    // Arduino Uno Pins
     let pins = arduino_hal::pins!(dp);
 
+    // Serial Interface (Used to communicate with computer)
     let mut serial = arduino_hal::default_serial!(dp, pins, 57600);
+
+    // Delay object. Allows libraries outside of the main function to use delay
     let mut delay = arduino_hal::Delay::new();
 
+    // Initialize pins needed for the display
     ufmt::uwriteln!(&mut serial, "Initializing pins..\n\n").unwrap();
     let spi_clock = pins.d13.into_output();
     let miso = pins.d12.into_pull_up_input();
@@ -96,8 +137,10 @@ fn main() -> ! {
     let mut sd_chip_select = pins.d7.into_output();
     let backlight = pins.d6.into_output(); // Backlight pin
 
+    // Disable the SD card by setting its chip select pin high
     sd_chip_select.set_high();
 
+    // Initialize the SPI interface for the display
     ufmt::uwriteln!(&mut serial, "Initializing SPI..\n\n").unwrap();
     let (spi, spi_cs) = arduino_hal::Spi::new(
         dp.SPI,
@@ -112,9 +155,11 @@ fn main() -> ! {
         },
     );
 
+    // Initialize the display SPI interface
     ufmt::uwriteln!(&mut serial, "Initializing display..\n\n").unwrap();
     let display_interface = SPIInterface::new(spi, data_command, spi_cs);
 
+    // Initialize the display interface
     let mut display = ST7789::new(
         display_interface,
         core::prelude::v1::Some(rst),
@@ -123,6 +168,7 @@ fn main() -> ! {
         500,
     );
 
+    // Perform initial actions on the display
     ufmt::uwriteln!(&mut serial, "Configuring display..\n\n").unwrap();
     display.init(&mut delay).unwrap();
     display
@@ -136,39 +182,7 @@ fn main() -> ! {
     display.init(&mut delay).unwrap();
     delay_ms(200);
 
-    let mut color_cycle = [
-        Rgb565::CSS_ORANGE,
-        Rgb565::CSS_GREEN,
-        Rgb565::CSS_BLUE,
-        Rgb565::CSS_RED,
-    ]
-    .iter()
-    .map(|&c| c.into_storage())
-    .cycle();
-
-    loop {
-        ufmt::uwriteln!(&mut serial, "Drawing pixels\n").unwrap();
-
-        let color = color_cycle.next().unwrap();
-
-        let x_start = 10;
-        let y_start = 10;
-        let width = 180;
-        let height = 270;
-        let colors = (0..(width as u32 * height as u32)).map(|_| color);
-
-        display
-            .set_pixels(
-                x_start,
-                y_start,
-                x_start + width - 1,
-                y_start + height - 1,
-                colors,
-            )
-            .unwrap();
-    }
-
-    /*
+    // Initialize the analog-to-digital converter peripheral
     let mut adc = arduino_hal::Adc::new(dp.ADC, Default::default());
 
     // Used for monotonic clock
@@ -191,28 +205,99 @@ fn main() -> ! {
     timer2.tccr2b().write(|w| w.cs2().direct());
     timer2.ocr2a().write(|w| unsafe { w.bits(47) });
 
+    // Initialize the pins used for the msgeq7
     let _msgeq7_clock = pins.d3.into_output(); // Already driven by TC2 hardware
     let mut strobe = pins.d2.into_output();
     let mut reset = pins.d4.into_output();
 
+    // Initialize the pins used for the audio input.
     let measure = pins.a0.into_analog_input(&mut adc);
 
+    // Initialize the variable which stores the audio band amplitudes
     let mut audio_band_amplitudes: AudioBandAmplitudes = AudioBandAmplitudes::default();
 
     // Initially reset the chip
     reset.set_low();
 
+    // Initialize the msgeq7 reader
     let mut msgeq7_reader_state = MSGEQ7ReaderState::Resetting(MSGEQ7ResetState::Low {
         time_set_low_ms: millis(),
     });
 
+    // Communicate to the user that the arduino is initialized
     ufmt::uwriteln!(&mut serial, "Arduino Initialized\n").unwrap();
 
+    // Enable interrupts.
     unsafe { interrupt::enable() };
 
+    // Initialize colors
+    let bg_color = Rgb565::BLACK;
+    let bar_color = Rgb565::CYAN;
+
+    // Variables used for drawing the bands
+    let mut most_recent_drawn_bands = AudioBandAmplitudes::default();
+    let num_bands = 7;
+    let gap = 4; // pixels between bars
+    let total_gaps_width = (num_bands + 1) * gap;
+    let bar_width = (REAL_SCREEN_DIMENSIONS.width - total_gaps_width) / num_bands;
+
+    // Function used to draw the bands
+    let mut draw_bands = |new_bands: AudioBandAmplitudes| {
+        for index in 0..num_bands as usize {
+            let x_start = (gap + (index as u32 * (bar_width + gap))) as u16;
+
+            // Scale the 0-1024 value to the screen height (180)
+            // Formula: (value * screen_height) / max_value
+            let new_height =
+                ((new_bands[index] as u32 * REAL_SCREEN_DIMENSIONS.height) / 1024) as u16;
+            let old_height = ((most_recent_drawn_bands[index] as u32
+                * REAL_SCREEN_DIMENSIONS.height)
+                / 1024) as u16;
+
+            if new_height > old_height {
+                // Bar grew: Draw the new segment in CYAN
+                let segment_height = new_height - old_height;
+                let colors =
+                    (0..(bar_width * segment_height as u32)).map(|_| bar_color.into_storage());
+
+                // Note: y=0 is top, so height is measured from bottom (REAL_SCREEN_DIMENSIONS.height)
+                display
+                    .set_pixels(
+                        x_start,
+                        REAL_SCREEN_DIMENSIONS.height as u16 - new_height,
+                        x_start + bar_width as u16 - 1,
+                        (REAL_SCREEN_DIMENSIONS.height as u16 - old_height) - 1,
+                        colors,
+                    )
+                    .unwrap();
+            } else if new_height < old_height {
+                // Bar shrunk: Erase the top segment with BLACK
+                let segment_height = old_height - new_height;
+                let colors =
+                    (0..(bar_width * segment_height as u32)).map(|_| bg_color.into_storage());
+
+                display
+                    .set_pixels(
+                        x_start,
+                        REAL_SCREEN_DIMENSIONS.height as u16 - old_height,
+                        x_start + bar_width as u16 - 1,
+                        (REAL_SCREEN_DIMENSIONS.height as u16 - new_height) - 1,
+                        colors,
+                    )
+                    .unwrap();
+            }
+        }
+
+        // Update the state for the next frame
+        most_recent_drawn_bands = new_bands;
+    };
+
+    // Main Program Loop
     loop {
+        // Get the current monotonic clock millisecond time
         let monotonic_ms = millis();
 
+        // Finite State Machine Operation
         match msgeq7_reader_state {
             MSGEQ7ReaderState::Resetting(reset_state) => {
                 match reset_state {
@@ -254,11 +339,11 @@ fn main() -> ! {
                         if (monotonic_ms - time_set_high_ms) > MSGEQ7StrobeState::SET_HIGH_WAIT_MS {
                             strobe.set_low();
 
-                            // arduino_hal::delay_us(40);
-                            arduino_hal::delay_ms(10);
+                            arduino_hal::delay_us(40);
+                            // arduino_hal::delay_ms(10);
 
                             let value = measure.analog_read(&mut adc);
-                            audio_band_amplitudes[*frequency_band_index as usize] = value as u16;
+                            audio_band_amplitudes[*frequency_band_index as usize] = value;
 
                             if *frequency_band_index < 6 {
                                 strobe.set_low();
@@ -277,31 +362,24 @@ fn main() -> ! {
 
                                 // Display Read Values
 
-                                match CHART_DISPLAY_OPTION {
-                                    ChartDisplayOption::Array { overwrite } => {
-                                        if overwrite {
-                                            ufmt::uwrite!(&mut serial, "\x1b[H").unwrap();
-                                        }
-
-                                        ufmt::uwriteln!(&mut serial, "{:?}", audio_band_amplitudes)
-                                            .unwrap();
-                                    }
-
-                                    ChartDisplayOption::FrequencyBarGraph { overwrite } => {
-                                        let chart =
-                                            render_audio_band_amplitudes(&audio_band_amplitudes);
-
-                                        if overwrite {
-                                            ufmt::uwrite!(&mut serial, "\x1b[H").unwrap();
-                                        }
-
-                                        if let Ok(s) =
-                                            core::str::from_utf8(&chart.storage[..chart.len])
-                                        {
-                                            ufmt::uwriteln!(&mut serial, "{}", s).unwrap();
-                                        }
-                                    }
+                                // The commented code below will clear the screen after each print.
+                                // This can be enabled or disabled by uncommenting the line
+                                /*
+                                if overwrite {
+                                    ufmt::uwrite!(&mut serial, "\x1b[H").unwrap();
                                 }
+                                */
+
+                                ufmt::uwriteln!(&mut serial, "{:?}", audio_band_amplitudes)
+                                    .unwrap();
+
+                                let normalized_bands =
+                                    normalize_band_response(audio_band_amplitudes);
+
+                                ufmt::uwriteln!(&mut serial, "{:?}", normalized_bands).unwrap();
+
+                                // Draw the bands to the display
+                                draw_bands(normalized_bands);
                             }
                         }
                     }
@@ -323,5 +401,4 @@ fn main() -> ! {
             }
         }
     }
-    */
 }

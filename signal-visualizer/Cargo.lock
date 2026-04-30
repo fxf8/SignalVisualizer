@@ -793,6 +793,7 @@ version = "0.1.0"
 dependencies = [
  "arduino-hal",
  "avr-device",
+ "display-interface",
  "display-interface-spi",
  "embedded-graphics",
  "embedded-hal 1.0.0",
