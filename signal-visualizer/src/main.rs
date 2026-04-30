@@ -210,7 +210,7 @@ fn main() -> ! {
     let mut strobe = pins.d2.into_output();
     let mut reset = pins.d4.into_output();
 
-    // Initialize the pins used for the audio input.
+    // Initialize the pins used for reading the MSGEQ7 output
     let measure = pins.a0.into_analog_input(&mut adc);
 
     // Initialize the variable which stores the audio band amplitudes
@@ -342,12 +342,15 @@ fn main() -> ! {
                             arduino_hal::delay_us(40);
                             // arduino_hal::delay_ms(10);
 
+                            // Read the value of the analog input and store it in the
+                            // audio_band_amplitudes array
                             let value = measure.analog_read(&mut adc);
                             audio_band_amplitudes[*frequency_band_index as usize] = value;
 
                             if *frequency_band_index < 6 {
                                 strobe.set_low();
 
+                                // Transition to the next frequency band and set the strobe to low
                                 msgeq7_reader_state = MSGEQ7ReaderState::Reading {
                                     strobe_state: MSGEQ7StrobeState::Low {
                                         time_set_low_ms: monotonic_ms,
@@ -355,6 +358,9 @@ fn main() -> ! {
                                     frequency_band_index: *frequency_band_index,
                                 }
                             } else {
+                                // This case occurs when all 7 frequency bands have been read. In this
+                                // scenario, display the values to the screen andreset the MSGEQ7 and
+                                // read the next 7 frequency bands.
                                 msgeq7_reader_state =
                                     MSGEQ7ReaderState::Resetting(MSGEQ7ResetState::Low {
                                         time_set_low_ms: monotonic_ms,
@@ -370,9 +376,13 @@ fn main() -> ! {
                                 }
                                 */
 
+                                // Print the audio band amplitudes to the computer (for debugging)
+                                /*
                                 ufmt::uwriteln!(&mut serial, "{:?}", audio_band_amplitudes)
                                     .unwrap();
+                                */
 
+                                // Normalize the audio band amplitudes
                                 let normalized_bands =
                                     normalize_band_response(audio_band_amplitudes);
 
@@ -385,10 +395,11 @@ fn main() -> ! {
                     }
 
                     MSGEQ7StrobeState::Low { time_set_low_ms } => {
-                        // If 20 ms elapsed
+                        // If 1 ms elapsed
                         if (monotonic_ms - time_set_low_ms) > MSGEQ7StrobeState::SET_LOW_WAIT_MS {
                             strobe.set_high();
 
+                            // Transition to the next frequency band to be read
                             msgeq7_reader_state = MSGEQ7ReaderState::Reading {
                                 strobe_state: MSGEQ7StrobeState::High {
                                     time_set_high_ms: monotonic_ms,
