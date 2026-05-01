@@ -241,17 +241,20 @@ fn main() -> ! {
     let total_gaps_width = (num_bands + 1) * gap;
     let bar_width = (REAL_SCREEN_DIMENSIONS.width - total_gaps_width) / num_bands;
 
-    display.set_orientation(st7789::Orientation::Landscape).unwrap();
+    display
+        .set_orientation(st7789::Orientation::Landscape)
+        .unwrap();
 
-    display.set_pixels(
-        0,
-        0,
-        REAL_SCREEN_DIMENSIONS.width as u16 - 1,
-        REAL_SCREEN_DIMENSIONS.height as u16 - 1,
-        (0..(REAL_SCREEN_DIMENSIONS.width * REAL_SCREEN_DIMENSIONS.height))
-            .map(|_| bg_color.into_storage()),
-    )
-    .unwrap();
+    display
+        .set_pixels(
+            0,
+            0,
+            REAL_SCREEN_DIMENSIONS.width as u16 - 1,
+            REAL_SCREEN_DIMENSIONS.height as u16 - 1,
+            (0..(REAL_SCREEN_DIMENSIONS.width * REAL_SCREEN_DIMENSIONS.height))
+                .map(|_| bg_color.into_storage()),
+        )
+        .unwrap();
 
     // Function used to draw the bands
     let mut draw_bands = |new_bands: AudioBandAmplitudes| {
@@ -398,7 +401,8 @@ fn main() -> ! {
                                 let normalized_bands =
                                     normalize_band_response(audio_band_amplitudes);
 
-                                ufmt::uwriteln!(&mut serial, "U {:?}", audio_band_amplitudes).unwrap();
+                                ufmt::uwriteln!(&mut serial, "U {:?}", audio_band_amplitudes)
+                                    .unwrap();
                                 ufmt::uwriteln!(&mut serial, "N {:?}", normalized_bands).unwrap();
 
                                 // Draw the bands to the display
