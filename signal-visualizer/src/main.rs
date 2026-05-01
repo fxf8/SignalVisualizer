@@ -20,16 +20,16 @@ struct RealScreenDimensions {
 
 // Real Screen Dimensions of the ST7789
 const REAL_SCREEN_DIMENSIONS: RealScreenDimensions = RealScreenDimensions {
-    height: 180,
-    width: 270,
+    height: 200,
+    width: 280,
 };
 
 // Data Type Used to Store the Audio Band Amplitudes
 type AudioBandAmplitudes = [u16; 7];
 
 // Due to Skewed Band Responses, They Need to be Normalized
-const MAX_MSGEQ7_BAND_RESPONSES: AudioBandAmplitudes = [150, 120, 190, 310, 475, 610, 740];
-const MIN_MSGEQ7_BAND_RESPONSES: AudioBandAmplitudes = [120, 80, 100, 100, 110, 130, 150];
+const MAX_MSGEQ7_BAND_RESPONSES: AudioBandAmplitudes = [200, 400, 300, 310, 475, 610, 740];
+const MIN_MSGEQ7_BAND_RESPONSES: AudioBandAmplitudes = [100, 200, 200, 210, 110, 150, 400];
 
 // Normalizes the Band Responses
 fn normalize_band_response(mut bands: AudioBandAmplitudes) -> AudioBandAmplitudes {
@@ -241,6 +241,18 @@ fn main() -> ! {
     let total_gaps_width = (num_bands + 1) * gap;
     let bar_width = (REAL_SCREEN_DIMENSIONS.width - total_gaps_width) / num_bands;
 
+    display.set_orientation(st7789::Orientation::Landscape).unwrap();
+
+    display.set_pixels(
+        0,
+        0,
+        REAL_SCREEN_DIMENSIONS.width as u16 - 1,
+        REAL_SCREEN_DIMENSIONS.height as u16 - 1,
+        (0..(REAL_SCREEN_DIMENSIONS.width * REAL_SCREEN_DIMENSIONS.height))
+            .map(|_| bg_color.into_storage()),
+    )
+    .unwrap();
+
     // Function used to draw the bands
     let mut draw_bands = |new_bands: AudioBandAmplitudes| {
         for index in 0..num_bands as usize {
@@ -386,7 +398,8 @@ fn main() -> ! {
                                 let normalized_bands =
                                     normalize_band_response(audio_band_amplitudes);
 
-                                ufmt::uwriteln!(&mut serial, "{:?}", normalized_bands).unwrap();
+                                ufmt::uwriteln!(&mut serial, "U {:?}", audio_band_amplitudes).unwrap();
+                                ufmt::uwriteln!(&mut serial, "N {:?}", normalized_bands).unwrap();
 
                                 // Draw the bands to the display
                                 draw_bands(normalized_bands);
